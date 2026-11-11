@@ -18,9 +18,9 @@ placeholder.
 
 | Path | Role |
 | --- | --- |
-| `app/` | Static site source, copied verbatim into `dist/` by the build. |
+| `app/` | Static site source, copied verbatim into `dist/` by the build. Regular files and directories only: the build fails on symlinks. |
 | `scripts/build.mjs` | Empties and recreates `dist/`, copies `app/`, writes `dist/version.json` = `{"sha": GITHUB_SHA or "local"}`. |
-| `scripts/smoke.mjs` | `node scripts/smoke.mjs <url> <sha>`: checks that `<url>/version.json` reports `<sha>` and `<url>/` contains `<main id="app">`, with bounded retries. |
+| `scripts/smoke.mjs` | `node scripts/smoke.mjs <url> <sha>`: checks that `<url>/version.json` reports `<sha>` and `<url>/` contains `<main id="app">`, with bounded retries. Non-2xx responses and redirects fail. |
 | `test/` | `node:test` suites, run with `npm test`. |
 
 Local commands (Node.js 22 or newer, no install step):
@@ -34,9 +34,15 @@ npm run smoke -- <url> <sha>   # SMOKE_ATTEMPTS / SMOKE_DELAY_MS override retrie
 ## CI and deploy
 
 - **`ci`** (`.github/workflows/ci.yml`): runs on every pull request and on
-  pushes to `main`. One job, `ci`, runs `npm test` and `npm run build`.
+  pushes to `main`. One job, `ci`, in this order:
+  1. records a fingerprint (sha256) of the locked evaluator files;
+  2. runs the locked evaluator, `node --test test/scaffold.test.mjs` and
+     `npm run build`, on the clean checkout before any app-controlled code runs;
+  3. runs the full suite, `npm test`;
+  4. fails if any tracked file changed (`git diff --exit-code`, porcelain
+     check), or if HEAD or any locked file differs from step 1.
 - **`deploy`** (`.github/workflows/deploy.yml`): runs on pushes to `main` (and
-  manually). Job `deploy` builds `dist/` with the commit SHA and publishes it to
+  manually, but job `deploy` only runs for `refs/heads/main`). Job `deploy` builds `dist/` with the commit SHA and publishes it to
   GitHub Pages (source: "GitHub Actions"). Job `hosted-smoke` then runs
   `scripts/smoke.mjs` against the published URL and fails unless the live site
   serves exactly that commit's `version.json` and the `<main id="app">` marker.

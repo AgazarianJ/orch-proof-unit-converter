@@ -16,7 +16,10 @@ concurrency:
 jobs:
   deploy:
     name: deploy
+    # Only main may be deployed, so workflow_dispatch from another branch cannot publish.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
       pages: write
@@ -48,6 +51,7 @@ jobs:
     name: hosted-smoke
     needs: deploy
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
     steps:
@@ -58,4 +62,7 @@ jobs:
         with:
           node-version: 22
       - name: Smoke test hosted site
-        run: node scripts/smoke.mjs "${{ needs.deploy.outputs.page_url }}" "${{ github.sha }}"
+        env:
+          PAGE_URL: ${{ needs.deploy.outputs.page_url }}
+          EXPECTED_SHA: ${{ github.sha }}
+        run: node scripts/smoke.mjs "$PAGE_URL" "$EXPECTED_SHA"

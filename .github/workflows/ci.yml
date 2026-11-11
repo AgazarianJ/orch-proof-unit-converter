@@ -13,6 +13,7 @@ jobs:
   ci:
     name: ci
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -20,5 +21,54 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
-      - run: npm test
-      - run: npm run build
+
+      # Phase 0: fingerprint the locked evaluator files in the clean checkout.
+      # The locked list lives here (step env), never in an app-controlled file.
+      # The digest is kept as a step output, which later steps cannot rewrite.
+      - name: Fingerprint locked evaluator files
+        id: locked
+        env:
+          LOCKED_FILES: package.json scripts/build.mjs scripts/smoke.mjs test/scaffold.test.mjs
+        run: |
+          set -euo pipefail
+          sums="$( { find .github -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum; sha256sum $LOCKED_FILES; } )"
+          printf '%s\n' "$sums"
+          echo "digest=$(printf '%s\n' "$sums" | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          echo "head=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      # Phase 1: the locked evaluator, before any app-controlled code has run.
+      # If either step fails, no later step runs and the job fails.
+      - name: Locked evaluator tests
+        run: node --test test/scaffold.test.mjs
+      - name: Locked build
+        run: npm run build
+
+      # Phase 2: the full suite, including app-controlled test/*.test.mjs files.
+      # It cannot change the Phase 1 verdict: that already completed above.
+      - name: Full test suite
+        run: npm test
+
+      # Phase 3: fail if the full suite changed anything tracked or any locked file.
+      - name: Tracked tree is unchanged
+        run: |
+          set -euo pipefail
+          git diff --exit-code
+          test -z "$(git status --porcelain --untracked-files=no)"
+      - name: Locked evaluator files are unchanged
+        env:
+          LOCKED_FILES: package.json scripts/build.mjs scripts/smoke.mjs test/scaffold.test.mjs
+          EXPECTED_DIGEST: ${{ steps.locked.outputs.digest }}
+          EXPECTED_HEAD: ${{ steps.locked.outputs.head }}
+        run: |
+          set -euo pipefail
+          sums="$( { find .github -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum; sha256sum $LOCKED_FILES; } )"
+          digest="$(printf '%s\n' "$sums" | sha256sum | cut -d' ' -f1)"
+          head="$(git rev-parse HEAD)"
+          if [ "$digest" != "$EXPECTED_DIGEST" ] || [ "$head" != "$EXPECTED_HEAD" ]; then
+            echo "::error::Locked evaluator files or HEAD changed during the test run."
+            echo "HEAD before: $EXPECTED_HEAD  after: $head"
+            echo "Fingerprint after the run (compare with the 'Fingerprint locked evaluator files' step):"
+            printf '%s\n' "$sums"
+            exit 1
+          fi
+          echo "Locked evaluator files unchanged (digest $digest, HEAD $head)."

@@ -1,6 +1,7 @@
 // Hosted smoke test: node scripts/smoke.mjs <url> <sha>
 // Passes only when <url>/version.json reports <sha> AND <url>/ contains <main id="app">.
 // Retries with bounded attempts; tune with SMOKE_ATTEMPTS / SMOKE_DELAY_MS.
+// Redirects are treated as failures (redirect: 'error').
 // LOCKED EVALUATOR FILE: orchestrator packages must not modify this file.
 const MARKER = '<main id="app">';
 
@@ -26,11 +27,18 @@ const delayMs = positiveInt('SMOKE_DELAY_MS', 15000);
 const base = rawUrl.endsWith('/') ? rawUrl : rawUrl + '/';
 
 async function fetchText(url) {
-  const res = await fetch(url, {
-    cache: 'no-store',
-    headers: { 'cache-control': 'no-cache', pragma: 'no-cache' },
-    signal: AbortSignal.timeout(30000),
-  });
+  let res;
+  try {
+    res = await fetch(url, {
+      cache: 'no-store',
+      // Never follow redirects: the content must come from exactly <url>.
+      redirect: 'error',
+      headers: { 'cache-control': 'no-cache', pragma: 'no-cache' },
+      signal: AbortSignal.timeout(30000),
+    });
+  } catch (err) {
+    throw new Error(`GET ${url} failed: ${err.cause?.message ?? err.message}`);
+  }
   const body = await res.text();
   if (!res.ok) throw new Error(`GET ${url} -> HTTP ${res.status}`);
   return body;
