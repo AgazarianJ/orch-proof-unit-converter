@@ -1,0 +1,15 @@
+{
+  "name": "orch-proof-unit-converter",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Disposable proof project for testing autonomous software development with an orchestrator.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --test \"test/*.test.mjs\"",
+    "smoke": "node scripts/smoke.mjs"
+  }
+}
