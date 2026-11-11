@@ -158,6 +158,23 @@ test('smoke fails on a stale sha', async () => {
   assert.match(r.stderr, /sha mismatch/);
 });
 
+// The deployed sha must equal the expected sha exactly: no prefix, case or
+// whitespace tolerance (hosted-smoke must see the exact merge commit).
+for (const [label, served] of [
+  ['a 7-character prefix of the expected sha', GOOD_SHA.slice(0, 7)],
+  ['the expected sha in upper case', GOOD_SHA.toUpperCase()],
+  ['the expected sha with a trailing newline', `${GOOD_SHA}\n`],
+  ['the expected sha with trailing whitespace', `${GOOD_SHA} `],
+]) {
+  test(`smoke fails when version.json serves ${label}`, async () => {
+    const r = await withServer({ sha: served, html: GOOD_HTML }, (url) =>
+      run('scripts/smoke.mjs', [url, GOOD_SHA], FAST),
+    );
+    assert.notEqual(r.code, 0, `${label} must fail`);
+    assert.match(r.stderr, /sha mismatch/);
+  });
+}
+
 test('smoke fails when the root marker is missing', async () => {
   const r = await withServer({ sha: GOOD_SHA, html: '<!doctype html><main>no marker</main>' }, (url) =>
     run('scripts/smoke.mjs', [url, GOOD_SHA], FAST),
